@@ -205,7 +205,7 @@ def send_to(target_id, data, purpose_node, msg_type=None):
             }
         log_event(node_id, f"Отправка {msg_type}", purpose_node, f"{list(data)}")
             
-    if msg_type == 'REQUEST-INFO':
+    if msg_type == 'Request_info':
         # Формируем сообщение
         msg = {
             'type': msg_type,
@@ -214,7 +214,7 @@ def send_to(target_id, data, purpose_node, msg_type=None):
             }
         log_event(node_id, f"Отправка {msg_type}", purpose_node, None)
 
-    if msg_type == 'Known-Fulset':
+    if msg_type == 'Known_Fullset':
         # Формируем сообщение
         msg = {
             'type': msg_type,
@@ -224,7 +224,7 @@ def send_to(target_id, data, purpose_node, msg_type=None):
             }
         log_event(node_id, f"Отправка {msg_type}", purpose_node, None)
         
-    if msg_type == 'Retranslation':
+    if msg_type == 'Retrans_Fullset':
         # Формируем сообщение
         msg = {
             'type': msg_type,
@@ -287,10 +287,6 @@ def send_in(msg_type=None, data=None, purpose_node=None):
     print("") # Структура вывода
     for target in table_round[node_id].keys():
         threading.Thread(target=send_to, args=(target, data, purpose_node, msg_type,), daemon=True).start()
-
-def retrans_request(msg):
-    print('b')
-    
     
 def process_request_packets(msg):
     need_packets = set(msg.get('data').get('need_packets')) # list() -> set()
@@ -384,24 +380,24 @@ def retranslation(msg, mode):
         print(f"network_status[node_id][neibors]: \n{network_status[node_id]['neibors']}\n\n\n")
         print(f"whom_to_send: \n {whom_to_send}\n\n\n")
         
-        if mode == 'Fulset':
+        if mode == 'Fullset':
             msg_to_send_retranslation = {'neibors': whom_to_send,
                                          'fullset': msg.get('data').get('fullset'),
                                          'back_node': list(neibors_cluster),}
         
+            for node in source_and_target[node_id]:    
+                send_in(msg_type='Retrans_Fullset', data=msg_to_send_retranslation, purpose_node=node)
         
-        if mode == 'Request':
+        elif mode == 'Request':
             msg_to_send_retranslation = {'neibors': whom_to_send,
                                          'need_packets': msg.get('data').get('need_packets'),
                                          'back_node': list(neibors_cluster),}
             
-        for node in source_and_target[node_id]:    
-            send_in(msg_type='Retranslation', data=msg_to_send_retranslation, purpose_node=node)
+            for node in source_and_target[node_id]:    
+                send_in(msg_type='Retrans_Request', data=msg_to_send_retranslation, purpose_node=node)
     
     else:
         print("Я не учавствую в ретрансляции")
-        
-    return
         
 def receive_from():
     while True:
@@ -481,7 +477,7 @@ def receive_from():
                 # Обновляем информацию о своих соседях
                 network_status[node_id]['neibors'].update({sender: {'position': msg.get('position'), 'packets_id': msg.get('packets_id')}})
 
-            if msg.get('type') == 'Known-Fulset':
+            if msg.get('type') == 'Known_Fullset':
                 
                 """
                 data = {'neibors': network_status[node_id]['neibors'],
@@ -497,7 +493,7 @@ def receive_from():
                 # Запускаем алгоритм ретрансляции
                 retranslation(msg, 'Fulset')
             
-            if msg.get('type') == 'Retranslation':
+            if msg.get('type') == 'Retrans-Fullset':
                 
                 """
                 msg_to_send_retranslation = {'neibors': whom_to_send,
@@ -521,7 +517,7 @@ def receive_from():
                     continue
                 
                 # Продолжаю ретранслировать мета-данные
-                retranslation(msg, 'Fulset')                
+                retranslation(msg, 'Fullset')                
                 
         except socket.timeout:
             continue
@@ -602,7 +598,7 @@ def MainLoop():
         msg_to_send_info = {'neibors': network_status[node_id]['neibors'],
                             'fullset': temp_data['fullset'],
                             'back_node': [],}
-        send_in(msg_type='Known-Fulset', data=msg_to_send_info,) # Отправляем сообщение всем в радиусе
+        send_in(msg_type='Known_Fullset', data=msg_to_send_info,) # Отправляем сообщение всем в радиусе
               
     while True:        
         if is_sink and temp_data != {}: # Пришла информация о существоании в сети некоторого изображения (индексы его пакетов)
