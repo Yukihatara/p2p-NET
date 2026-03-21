@@ -1,13 +1,18 @@
 a = 5
-b = 5
 c = 5
+b = 5
 d = 5
 
-def blablabla(a,b,c,d):
+def blablabla(a,b,c):
     eq = a+b+c
     print(eq)
-    return eq/d
+    return eq/3
 
-result = blablabla(a,b,c,d)
+def koodf(d):
+    print('good number')
 
+
+result = blablabla(a,b,c)
 print(result)
+
+koodf(d)
