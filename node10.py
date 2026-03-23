@@ -69,6 +69,9 @@ is_sink_value = {
 
 stok = 'E'
 
+mode_deal = None
+# mode_deal = 'Retrans'
+
 def parse_packets(s: str) -> Set[int]:
     if not s: return set()
     if '-' in s:
@@ -193,7 +196,60 @@ def calculate_propagation_delay(target_position, position=position):
     return max(prop_delay, 0.001), dist   # Минимально-возможная задержка
 
 def send_to(target_id, data, purpose_node, msg_type=None):
-    
+  
+    if msg_type == 'Hello':
+        # Формируем сообщение
+        msg = {
+            'type': msg_type, # На практике предполагаю, что тип сообщения можно сократить
+            'sender': node_id,
+            'position': position,
+            'packets_id': list(packets),
+            'time': time.time(), # Планируется удаление
+            }
+        log_event(node_id, f"Отправка {msg_type}", purpose_node, None)    
+
+    if msg_type == 'Known_Fullset':
+        # Формируем сообщение
+        msg = {
+            'type': msg_type,
+            'sender': node_id,
+            'data': data,
+            'time': time.time(),
+            }
+        log_event(node_id, f"Отправка {msg_type}", purpose_node, None)
+  
+    if msg_type == 'Retrans_Fullset':
+        # Формируем сообщение
+        msg = {
+            'type': msg_type,
+            'sender': node_id,
+            'reciever': purpose_node,
+            'data': data,
+            'time': time.time(),
+            }
+        log_event(node_id, f"Отправка {msg_type}", purpose_node, None)
+
+    if msg_type == 'Request':
+        # Формируем сообщение
+        msg = {
+            'type': msg_type,
+            'sender': node_id,
+            'data': data,
+            'time': time.time(),
+            }    
+        log_event(node_id, f"Отправка {msg_type}", purpose_node, f"{data.get('need_packets')}")
+        
+    if msg_type == 'Retrans_Request':
+        # Формируем сообщение
+        msg = {
+            'type': msg_type, # На практике предполагаю, что тип сообщения можно сократить
+            'sender': node_id,
+            'reciever': purpose_node,
+            'data': data,
+            'time': time.time(), # Планируется удаление
+            }
+        log_event(node_id, f"Отправка {msg_type}", purpose_node, None)      
+        
     if msg_type == 'Packets':
         # Формируем сообщение
         msg = {
@@ -211,48 +267,6 @@ def send_to(target_id, data, purpose_node, msg_type=None):
             'type': msg_type,
             'sender': node_id,
             'time': time.time(),
-            }
-        log_event(node_id, f"Отправка {msg_type}", purpose_node, None)
-
-    if msg_type == 'Known_Fullset':
-        # Формируем сообщение
-        msg = {
-            'type': msg_type,
-            'sender': node_id,
-            'data': data,
-            'time': time.time(),
-            }
-        log_event(node_id, f"Отправка {msg_type}", purpose_node, None)
-        
-    if msg_type == 'Retrans_Fullset':
-        # Формируем сообщение
-        msg = {
-            'type': msg_type,
-            'sender': node_id,
-            'reciever': purpose_node,
-            'data': data,
-            'time': time.time(),
-            }
-        log_event(node_id, f"Отправка {msg_type}", purpose_node, None)
-        
-    if msg_type == 'Request':
-        # Формируем сообщение
-        msg = {
-            'type': msg_type,
-            'sender': node_id,
-            'data': data,
-            'time': time.time(),
-            }    
-        log_event(node_id, f"Отправка {msg_type}", purpose_node, f"{data.get('need_packets')}")
-        
-    if msg_type == 'Hello':
-        # Формируем сообщение
-        msg = {
-            'type': msg_type, # На практике предполагаю, что тип сообщения можно сократить
-            'sender': node_id,
-            'position': position,
-            'packets_id': list(packets),
-            'time': time.time(), # Планируется удаление
             }
         log_event(node_id, f"Отправка {msg_type}", purpose_node, None)
         
@@ -303,6 +317,8 @@ def process_request_packets(msg):
     for node in neibors_cluster:
         around_packets.update(set(neibors_cluster[node]['packets_id']))
     
+    busy_storage = {} # {'node_id': num}
+    
     local_need = need_packets - around_packets
     if local_need == set():
         print(f"  - Соседи {local_stok} соержат необходимые пакеты")
@@ -314,6 +330,8 @@ def process_request_packets(msg):
         # if all(v == [] for v in NodeAndUniqPck.values()):
         if(all_unique_packets != set()):
             print(f"  - {local_stok} содержит уникальные пакеты в радиусе")
+            
+                
             if need_packets >= all_unique_packets:
                 print(f"{' '*(4*2-1)}>(Уникальные пакеты не полностью закрывают потребность {local_stok})")
                 
@@ -389,10 +407,11 @@ def retranslation(msg, mode):
                 send_in(msg_type='Retrans_Fullset', data=msg_to_send_retranslation, purpose_node=node)
         
         elif mode == 'Request':
-            msg_to_send_retranslation = {'neibors': whom_to_send,
-                                         'need_packets': msg.get('data').get('need_packets'),
-                                         'back_node': list(neibors_cluster),}
             
+            msg_to_send_retranslation = {'neibors': whom_to_send,
+                                         'need_packets': msg.get('data').get('need_packets'), # local_need pcks
+                                         'back_node': list(neibors_cluster),}
+            mode = 'retrans'
             for node in source_and_target[node_id]:    
                 send_in(msg_type='Retrans_Request', data=msg_to_send_retranslation, purpose_node=node)
     
@@ -408,39 +427,83 @@ def receive_from():
             
             sender = msg.get('sender')
             
-            if msg.get('type') == 'Request-Info':
+            if msg.get('type') == 'Hello':
                 print(f"\nПолучил {msg.get('type')} от {sender}")
                 
-                # Добавляю соседа, поскольку я его слышу
-                if sender not in network_status[node_id]['neibors']:
-                    network_status[node_id]['neibors'].extend(list(sender))
+                log_event(node_id, f"Получил {msg.get('type')}", sender, None)
                 
-                # Отправляю информацию по запросу
-                send_in(msg_type='INFO', data=network_status[node_id], purpose_node=sender)
+                # Обновляем информацию о своих соседях
+                network_status[node_id]['neibors'].update({sender: {'position': msg.get('position'), 'packets_id': msg.get('packets_id')}})
+
+            if msg.get('type') == 'Known_Fullset':
                 
-            if msg.get('type') == 'Info':
+                """
+                data = {'neibors': network_status[node_id]['neibors'],
+                        'fullset': temp_data['fullset'],
+                        'back_node': []}
+                
+                """
+
+                print(f"\nПолучил {msg.get('type')} от {sender}")
+
+                log_event(node_id, f"Получил {msg.get('type')}", sender, None)
+
+                # Запускаем алгоритм ретрансляции
+                retranslation(msg, 'Fullset')
+            
+            if msg.get('type') == 'Retrans_Fullset':
+                
+                """
+                msg_to_send_retranslation = {'neibors': whom_to_send,
+                                             'fullset': fullset,
+                                             'back_node': list(neibors_cluster),}
+                
+                """
+                
+                print(f"\nПолучил {msg.get('type')} от {sender}")
+                
+                log_event(node_id, f"Получил {msg.get('type')}", sender, None)
                 
                 reciever = msg.get('reciever')
                 
                 if not sender or sender == node_id or reciever != node_id:
                 # if not sender or sender == node_id:
                     continue
-                print(f"\nПолучил {msg.get('type')} от {sender}\n")
                 
-                # Добавляю у себя соседа, поскольку я получил ответ
-                if sender not in network_status[node_id]['neibors']:
-                    network_status[node_id]['neibors'].extend(list(sender))
-                network_status[sender] = msg.get('data')
+                if is_sink:
+                    temp_data.update( {'fullset': msg.get('data').get('fullset')} )
+                    continue
+                
+                # Продолжаю ретранслировать мета-данные
+                retranslation(msg, 'Fullset')                
             
             if msg.get('type') == 'Request':
                 print(f"\nПолучил {msg.get('type')} от {sender}: {list(msg.get('data').get('need_packets'))}")
                 
-                print('Ошибка 1')
                 log_event(node_id, f"Получил {msg.get('type')}", sender, f"Получил {msg.get('data').get('need_packets')}")
                 
-                print('Ошибка 2')
+                """
+                msg_request_packets = {
+                    'neibors': network_status[node_id]['neibors'],
+                    'need_packets': list(need_packets),
+                    'back_node':[],
+                    }
+                """
                 
                 # Запускаем алгоритм поиска необходимых пакетов для отправки
+                process_request_packets(msg)
+
+            if msg.get('type') == 'Retrans_Request':
+                print(f"\nПолучил {msg.get('type')} от {sender}")
+                
+                """
+                msg_to_send_retranslation = {'neibors': whom_to_send,
+                                             'need_packets': msg.get('data').get('need_packets'),
+                                             'back_node': list(neibors_cluster),}
+                """
+                
+                log_event(node_id, f"Получил {msg.get('type')}", sender, f"Получил {msg.get('data').get('need_packets')}")
+                
                 process_request_packets(msg)
                 
             if msg.get('type') == 'Packets':
@@ -469,56 +532,30 @@ def receive_from():
                 print(f"[{node_id}] Обновил свои пакеты в network_status:\n  - {network_status[node_id]['packets']}")
                 print(f"Содержимое пакетов:\n  - ({(''.join(list(dict(sorted(packets.items())).values())))})")
                 
-            if msg.get('type') == 'Hello':
+            if msg.get('type') == 'Request_Info':
                 print(f"\nПолучил {msg.get('type')} от {sender}")
                 
-                log_event(node_id, f"Получил {msg.get('type')}", sender, None)
+                # Добавляю соседа, поскольку я его слышу
+                if sender not in network_status[node_id]['neibors']:
+                    network_status[node_id]['neibors'].extend(list(sender))
                 
-                # Обновляем информацию о своих соседях
-                network_status[node_id]['neibors'].update({sender: {'position': msg.get('position'), 'packets_id': msg.get('packets_id')}})
-
-            if msg.get('type') == 'Known_Fullset':
+                # Отправляю информацию по запросу
+                send_in(msg_type='INFO', data=network_status[node_id], purpose_node=sender)
                 
-                """
-                data = {'neibors': network_status[node_id]['neibors'],
-                        'fullset': temp_data['fullset'],
-                        'back_node': []}
-                
-                """
-
-                print(f"\nПолучил {msg.get('type')} от {sender}")
-
-                log_event(node_id, f"Получил {msg.get('type')}", sender, None)
-
-                # Запускаем алгоритм ретрансляции
-                retranslation(msg, 'Fulset')
-            
-            if msg.get('type') == 'Retrans-Fullset':
-                
-                """
-                msg_to_send_retranslation = {'neibors': whom_to_send,
-                                             'fullset': fullset,
-                                             'back_node': list(neibors_cluster),}
-                
-                """
-                
-                print(f"\nПолучил {msg.get('type')} от {sender}")
-                
-                log_event(node_id, f"Получил {msg.get('type')}", sender, None)
+            if msg.get('type') == 'Info':
                 
                 reciever = msg.get('reciever')
                 
                 if not sender or sender == node_id or reciever != node_id:
                 # if not sender or sender == node_id:
                     continue
+                print(f"\nПолучил {msg.get('type')} от {sender}\n")
                 
-                if is_sink:
-                    temp_data.update( {'fullset': msg.get('data').get('fullset')} )
-                    continue
-                
-                # Продолжаю ретранслировать мета-данные
-                retranslation(msg, 'Fullset')                
-                
+                # Добавляю у себя соседа, поскольку я получил ответ
+                if sender not in network_status[node_id]['neibors']:
+                    network_status[node_id]['neibors'].extend(list(sender))
+                network_status[sender] = msg.get('data')
+         
         except socket.timeout:
             continue
         except ConnectionResetError as cre:  # ← СПЕЦИФИЧЕСКОЕ ИСКЛЮЧЕНИЕ ПЕРВЫМ
@@ -545,6 +582,11 @@ def find_unique_packets(neibors):
     Returns:
         dict: {node_id: [уникальные_пакеты_этого_узла]}
     """
+    
+    # result = {
+    #     'A' = set([1,2,5]),
+    # }
+    # set(sorted(all_unique_packets))
     
     result = {}
     
@@ -599,10 +641,9 @@ def MainLoop():
                             'fullset': temp_data['fullset'],
                             'back_node': [],}
         send_in(msg_type='Known_Fullset', data=msg_to_send_info,) # Отправляем сообщение всем в радиусе
-              
+                  
     while True:        
         if is_sink and temp_data != {}: # Пришла информация о существоании в сети некоторого изображения (индексы его пакетов)
-
             need_packets = set(temp_data['fullset']) - set(packets)
             if need_packets != set() and network_status[node_id]['neibors'] != {}:        
                 msg_request_packets = {
